@@ -1,0 +1,6 @@
+.venv/
+juicepassproxy/
+log/
+config/
+__pycache__/
+.DS_Store

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.juicerescue.dns</string>
+  <key>ProgramArguments</key><array>
+    <string>/opt/homebrew/bin/python3.12</string><string>-I</string><string>__DIR__/dns_override.py</string><string>__MAC_IP__</string><string>__UPSTREAM_DNS__</string>
+  </array>
+  <key>WorkingDirectory</key><string>__DIR__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__DIR__/log/dns.out</string>
+  <key>StandardErrorPath</key><string>__DIR__/log/dns.out</string>
+</dict></plist>

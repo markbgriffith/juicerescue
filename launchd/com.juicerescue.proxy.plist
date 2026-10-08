@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.juicerescue.proxy</string>
+  <key>ProgramArguments</key><array>
+    <string>__DIR__/.venv/bin/python</string><string>__DIR__/juicepassproxy/juicepassproxy.py</string>
+    <string>--juicebox_id</string><string>__JUICEBOX_ID__</string>
+    <string>--local_ip</string><string>__MAC_IP__</string>
+    <string>--local_port</string><string>8042</string>
+    <string>--enelx_ip</string><string>127.0.0.1:8042</string>
+    <string>--ignore_enelx</string>
+    <string>--mqtt_host</string><string>127.0.0.1</string>
+    <string>--config_loc</string><string>__DIR__/config</string>
+    <string>--log_loc</string><string>__DIR__/log</string>
+  </array>
+  <key>WorkingDirectory</key><string>__DIR__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>__DIR__/log/proxy.out</string>
+  <key>StandardErrorPath</key><string>__DIR__/log/proxy.out</string>
+</dict></plist>
