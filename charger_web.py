@@ -1,5 +1,8 @@
 """JuiceBox control page: live status, charge modes, and an off-peak schedule.
 
+Modes: "now" (default, full current), "tonight" (wait for the off-peak window once,
+then return to "now"), "scheduled" (off-peak window every night) and "pause".
+
 Reads charger state from JuicePassProxy over MQTT and sets the charging current by
 publishing to the proxy's "Max Current (Online/Wanted)" command topic. Only the
 online limit is changed: if this Mac stops talking to the charger, it falls back
@@ -11,7 +14,7 @@ Serves http://<this Mac>:8080
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -26,7 +29,8 @@ MAX_AMPS = 40
 MIN_AMPS = 6  # J1772 chargers can't advertise less than 6 A; 0 means pause
 RESEND_SECONDS = 300
 
-DEFAULTS = {"mode": "scheduled", "start": "00:00", "end": "06:00", "amps": MAX_AMPS}
+MODES = ("now", "tonight", "scheduled", "pause")
+DEFAULTS = {"mode": "now", "start": "23:00", "end": "07:00", "amps": MAX_AMPS}
 
 lock = threading.Lock()
 state = {}  # entity name -> value, from MQTT
@@ -58,10 +62,25 @@ def in_window(now, start, end):
     return t >= start or t < end  # window crosses midnight
 
 
+def next_at(hhmm, after):
+    t = datetime.combine(after.date(), datetime.strptime(hhmm, "%H:%M").time())
+    return t if t > after else t + timedelta(days=1)
+
+
+def window_end(now, start, end):
+    """When the current window ends, or if outside it, when the next one ends."""
+    begin = now if in_window(now, start, end) else next_at(start, now)
+    return next_at(end, begin)
+
+
+def tonight_over(now):
+    return now >= datetime.fromisoformat(settings.get("tonight_until", "2000-01-01T00:00"))
+
+
 def desired_amps(now=None):
     now = now or datetime.now()
     mode = settings["mode"]
-    if mode == "now":
+    if mode == "now" or (mode == "tonight" and tonight_over(now)):
         return MAX_AMPS
     if mode == "pause":
         return 0
@@ -79,6 +98,11 @@ def on_message(client, userdata, msg):
 
 def scheduler(client):
     while True:
+        if settings["mode"] == "tonight" and tonight_over(datetime.now()):
+            settings["mode"] = "now"
+            settings.pop("tonight_until", None)
+            save_settings()
+            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} tonight-only window finished, back to charge now", flush=True)
         amps = desired_amps()
         with lock:
             due = amps != last_sent["amps"] or time.time() - last_sent["at"] > RESEND_SECONDS
@@ -139,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             new = dict(settings)
             if "mode" in body:
-                if body["mode"] not in ("scheduled", "now", "pause"):
+                if body["mode"] not in MODES:
                     raise ValueError("bad mode")
                 new["mode"] = body["mode"]
             for key in ("start", "end"):
@@ -148,8 +172,13 @@ class Handler(BaseHTTPRequestHandler):
                     new[key] = body[key]
             if "amps" in body:
                 new["amps"] = max(MIN_AMPS, min(MAX_AMPS, int(body["amps"])))
+            if new["mode"] == "tonight":
+                new["tonight_until"] = window_end(datetime.now(), new["start"], new["end"]).isoformat(timespec="minutes")
+            else:
+                new.pop("tonight_until", None)
         except (ValueError, TypeError) as e:
             return self._send(400, json.dumps({"error": str(e)}))
+        settings.clear()
         settings.update(new)
         save_settings()
         with lock:
@@ -175,7 +204,7 @@ h1{font-size:22px;margin:4px 0 14px}
 .status b{font-size:24px}.muted{color:var(--muted);font-size:14px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
 .grid div{background:var(--bg);border-radius:10px;padding:10px}.grid span{display:block;font-size:13px;color:var(--muted)}.grid b{font-size:20px;font-variant-numeric:tabular-nums}
-.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .modes button{padding:12px 4px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;font-weight:600}
 .modes button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 label{display:flex;justify-content:space-between;align-items:center;margin:12px 0;gap:12px}
@@ -198,8 +227,9 @@ input[type=range]{flex:1;accent-color:var(--accent)}
 </section>
 <section class="card">
   <div class="modes">
-    <button data-mode="scheduled">Scheduled</button>
     <button data-mode="now">Charge now</button>
+    <button data-mode="tonight">Tonight only</button>
+    <button data-mode="scheduled">Every night</button>
     <button data-mode="pause">Pause</button>
   </div>
 </section>
@@ -224,9 +254,10 @@ function render(s){
   $('limit').textContent=s.limit<0?'–':(s.limit==0?'Paused':s.limit.toFixed(0)+' A');
   document.querySelectorAll('.modes button').forEach(b=>b.classList.toggle('on',b.dataset.mode==s.settings.mode));
   const st=s.settings,p=$('plan');p.classList.remove('warn');
-  if(st.mode=='now')p.textContent='Charging at full current until you switch back to Scheduled.';
+  if(st.mode=='now')p.textContent='Charges at full current whenever the car is plugged in.';
+  else if(st.mode=='tonight')p.textContent=(s.in_window?`Tonight only: charging at ${st.amps} A until ${fmt12(st.end)}`:`Tonight only: waiting until ${fmt12(st.start)}, charging until ${fmt12(st.end)}`)+', then back to Charge now.';
   else if(st.mode=='pause'){p.textContent='Paused. The car will not charge.';p.classList.add('warn')}
-  else p.textContent=s.in_window?`Off-peak now: charging at ${st.amps} A until ${fmt12(st.end)}.`:`Waiting for off-peak: charging starts at ${fmt12(st.start)}.`;
+  else p.textContent=s.in_window?`Every night: charging at ${st.amps} A until ${fmt12(st.end)}.`:`Every night: waiting until ${fmt12(st.start)}.`;
   if(s.seconds_since_update!=null&&s.seconds_since_update>180){p.textContent='No data from the charger for a few minutes. Check the router and the Mac.';p.classList.add('warn')}
   if(!editing){$('start').value=st.start;$('end').value=st.end;$('amps').value=st.amps;$('ampsv').textContent=st.amps+' A'}
 }

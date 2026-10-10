@@ -108,8 +108,9 @@ Within a minute, `log/dns.out` should show the lookup and `log/juicepassproxy.lo
 
 Open `http://<mac-ip>:8080` on your phone and add it to the home screen. The page has:
 
-- **Scheduled**: charges only between the start and stop times, at the chosen current (6–40 A).
-- **Charge now**: full current until you switch back.
+- **Charge now** (default): full current whenever the car is plugged in.
+- **Tonight only**: waits for the off-peak window, charges through it, then switches back to Charge now.
+- **Every night**: charges only between the start and stop times, at the chosen current (6–40 A), every night.
 - **Pause**: no charging.
 
 The page only changes the charger's *online* current limit. If the Mac or router goes down, the
